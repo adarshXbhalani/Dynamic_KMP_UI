@@ -1,0 +1,38 @@
+{
+  "tableName": "testrecord",
+  "displayName": "Test Records",
+  "apiBase": "http://localhost:8080/api/testrecords",
+  "columns": [
+    { "key": "id",            "label": "ID",            "visible": true,  "addable": false, "editable": false, "type": "number" },
+    { "key": "category",      "label": "Category",      "visible": true,  "addable": true,  "editable": true,  "type": "text"   },
+    { "key": "testStation",   "label": "Test Station",  "visible": true,  "addable": true,  "editable": true,  "type": "text"   },
+    { "key": "dut",           "label": "DUT",           "visible": true,  "addable": true,  "editable": true,  "type": "text"   },
+    { "key": "orderCode",     "label": "Order Code",    "visible": true,  "addable": true,  "editable": true,  "type": "text"   },
+    { "key": "startTime",     "label": "Start Time",    "visible": true,  "addable": false, "editable": false, "type": "text"   },
+    { "key": "endTime",       "label": "End Time",      "visible": true,  "addable": false, "editable": false, "type": "text"   },
+    { "key": "result",        "label": "Result",        "visible": true,  "addable": false, "editable": false, "type": "number" },
+    { "key": "resultCode",    "label": "Result Code",   "visible": true,  "addable": false, "editable": false, "type": "number" },
+    { "key": "operator",      "label": "Operator",      "visible": true,  "addable": true,  "editable": true,  "type": "text"   },
+    { "key": "batchId",       "label": "Batch ID",      "visible": true,  "addable": true,  "editable": true,  "type": "text"   }
+  ],
+  "searchable": true,
+  "searchColumns": [
+    { "key": "dut",       "label": "DUT",        "enabled": true  },
+    { "key": "orderCode", "label": "Order Code", "enabled": true  },
+    { "key": "category",  "label": "Category",   "enabled": false }
+  ],
+  "dateFilterable": true,
+  "dateColumn": "startTime",
+  "foreignKeySearch": [
+    {
+      "enabled": true,
+      "label": "DUT Number",
+      "placeholder": "e.g. GUT1V12345",
+      "foreignKey": "dut",
+      "apiEndpoint": "http://localhost:8080/api/testrecords/by-dut"
+    }
+  ],
+  "canAdd": true,
+  "canDelete": true,
+  "canEdit": true
+}

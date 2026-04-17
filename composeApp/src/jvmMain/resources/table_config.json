@@ -1,0 +1,23 @@
+{
+  "tableName": "records",
+  "displayName": "Records",
+  "apiBase": "http://localhost:8080/api/records",
+  "columns": [
+    { "key": "id",          "label": "ID",          "visible": true, "addable": false,  "editable": false, "type": "number" },
+    { "key": "category",    "label": "Category",    "visible": true, "addable": true,  "editable": false,  "type": "text"   },
+    { "key": "description", "label": "Description", "visible": true, "addable": true, "editable": true,  "type": "text"   },
+    { "key": "amount",      "label": "Amount",      "visible": true, "addable": true, "editable": true,  "type": "number" },
+    { "key": "recordDate",  "label": "Date",        "visible": true, "addable": true, "editable": true,  "type": "date"   }
+  ],
+  "searchable": true,
+  "searchColumns": [
+    { "key": "category",   "label": "Category",    "enabled": true },
+    { "key": "description","label": "Description", "enabled": true },
+    { "key": "amount",     "label": "Amount",      "enabled": true }
+  ],
+  "dateFilterable": true,
+  "dateColumn": "recordDate",
+  "canAdd": true,
+  "canDelete": true,
+  "canEdit": true
+}

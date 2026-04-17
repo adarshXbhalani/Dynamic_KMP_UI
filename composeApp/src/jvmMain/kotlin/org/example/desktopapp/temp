@@ -1,0 +1,800 @@
+package org.example.desktopapp
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
+
+@Composable
+fun DynamicTableScreen(
+    configFile: String,          // pass JSON filename
+    onBack: () -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    val authService = remember { AuthService() }
+
+    // load config from JSON
+    val config = remember { TableConfigLoader.load(configFile) }
+    val visibleColumns = config.columns.filter { it.visible }
+    var successMsg    by remember { mutableStateOf("") }
+    // state
+    var rows       by remember { mutableStateOf<List<Map<String, String>>>(emptyList()) }
+    var isLoading  by remember { mutableStateOf(false) }
+    var errorMsg   by remember { mutableStateOf("") }
+    var searchText by remember { mutableStateOf("") }
+    var showAddDialog by remember { mutableStateOf(false) }
+    // add this state at top of DynamicTableScreen
+    var editingRow by remember { mutableStateOf<Map<String, String>?>(null) }
+    // load all rows
+    fun loadAll() {
+        scope.launch {
+            isLoading = true
+            errorMsg = ""
+            try {
+                rows = authService.getAllRows(config.apiBase)
+            } catch (e: Exception) {
+                errorMsg = "Failed: ${e.message}"
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+
+    // delete row
+    fun deleteRow(id: String) {
+        scope.launch {
+            try {
+                authService.deleteRow(config.apiBase, id)
+                loadAll()
+            } catch (e: Exception) {
+                errorMsg = "Delete failed: ${e.message}"
+            }
+        }
+    }
+
+    // search
+    fun search() {
+        scope.launch {
+            isLoading = true
+            try {
+                rows = if (searchText.isBlank())
+                    authService.getAllRows(config.apiBase)
+                else
+                    authService.searchRows(config.apiBase, searchText)
+            } catch (e: Exception) {
+                errorMsg = "Search failed: ${e.message}"
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) { loadAll() }
+
+    // Add Dialog
+    if (showAddDialog) {
+        DynamicAddDialog(
+            columns = config.columns.filter { it.editable },
+            onDismiss = { showAddDialog = false },
+            onSave = { formData ->
+                scope.launch {
+                    try {
+                        authService.addRow(config.apiBase, formData)
+                        showAddDialog = false
+                        loadAll()    // ← reactive update
+                    } catch (e: Exception) {
+                        errorMsg = "Add failed: ${e.message}"
+                    }
+                }
+            }
+        )
+    }
+
+    // ── EDIT DIALOG ──
+    editingRow?.let { row ->
+        DynamicEditDialog(
+            row = row,
+            columns = config.columns.filter { it.editable },
+            onDismiss = { editingRow = null },
+            onSave = { formData ->
+                scope.launch {
+                    try {
+                        authService.updateRow(config.apiBase, formData)
+                        editingRow = null
+                        successMsg = "Record updated successfully"
+                        loadAll()
+                    } catch (e: Exception) {
+                        errorMsg = "Update failed: ${e.message}"
+                    }
+                }
+            }
+        )
+    }
+
+    Column(modifier = Modifier.fillMaxSize().padding(32.dp)) {
+
+        // TOP BAR
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(config.displayName, style = MaterialTheme.typography.headlineMedium)
+            OutlinedButton(onClick = onBack) { Text("Back") }
+        }
+
+        Spacer(Modifier.height(16.dp))
+        HorizontalDivider()
+        Spacer(Modifier.height(12.dp))
+
+        // SEARCH + ADD ROW
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (config.searchable) {
+                OutlinedTextField(
+                    value = searchText,
+                    onValueChange = { searchText = it },
+                    label = { Text("Search") },
+                    singleLine = true,
+                    modifier = Modifier.width(240.dp)
+                )
+                Button(onClick = { search() }) { Text("Search") }
+                OutlinedButton(onClick = { searchText = ""; loadAll() }) { Text("Reset") }
+            }
+
+            Spacer(Modifier.weight(1f))
+
+            if (config.canAdd) {
+                Button(onClick = { showAddDialog = true }) { Text("+ Add") }
+            }
+        }
+
+        Spacer(Modifier.height(12.dp))
+
+        // TABLE HEADER — built from JSON columns
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.primary)
+                .padding(horizontal = 16.dp, vertical = 10.dp)
+        ) {
+            visibleColumns.forEach { col ->
+                Text(
+                    col.label,
+                    color = Color.White,
+                    modifier = Modifier.weight(1f),
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp
+                )
+            }
+            if (config.canDelete) {
+                Text("Action", color = Color.White, modifier = Modifier.width(80.dp), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            }
+        }
+
+        // TABLE BODY — built from JSON data
+        when {
+            isLoading -> {
+                Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
+                }
+            }
+            errorMsg.isNotEmpty() -> {
+                Text(errorMsg, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp))
+            }
+            rows.isEmpty() -> {
+                Text("No data found.", modifier = Modifier.padding(16.dp), color = Color.Gray)
+            }
+            else -> {
+                LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                    itemsIndexed(rows) { index, row ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(if (index % 2 == 0) Color(0xFFF5F5F5) else Color.White)
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // render each cell based on JSON column config
+                            visibleColumns.forEach { col ->
+                                Text(
+                                    row[col.key] ?: "",
+                                    modifier = Modifier.weight(1f),
+                                    fontSize = 13.sp
+                                )
+                            }
+                            //edit button
+                            if (config.canEdit) {
+                                TextButton(
+                                    onClick = { editingRow = row }  // ← sets editingRow state
+                                ) {
+                                    Text("Edit", fontSize = 12.sp)
+                                }
+                            }
+                            // delete button
+                            if (config.canDelete) {
+                                TextButton(
+                                    onClick = { deleteRow(row["id"] ?: "") },
+                                    modifier = Modifier.width(80.dp)
+                                ) {
+                                    Text("Delete", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                                }
+                            }
+                        }
+                        HorizontalDivider(color = Color(0xFFEEEEEE))
+                    }
+                }
+            }
+        }
+    }
+}
+
+// DYNAMIC ADD DIALOG — fields built from JSON
+@Composable
+fun DynamicAddDialog(
+    columns: List<ColumnConfig>,
+    onDismiss: () -> Unit,
+    onSave: (Map<String, String>) -> Unit
+) {
+    // create form state dynamically from columns
+    val formData = remember {
+        mutableStateMapOf<String, String>().apply {
+            columns.forEach { put(it.key, "") }
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Add New Row") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                // render one input per editable column
+                columns.forEach { col ->
+                    OutlinedTextField(
+                        value = formData[col.key] ?: "",
+                        onValueChange = { formData[col.key] = it },
+                        label = { Text(col.label) },
+                        singleLine = true
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = { onSave(formData.toMap()) }) { Text("Save") }
+        },
+        dismissButton = {
+            OutlinedButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+@Composable
+fun DynamicEditDialog(
+    row: Map<String, String>,
+    columns: List<ColumnConfig>,
+    onDismiss: () -> Unit,
+    onSave: (Map<String, String>) -> Unit
+) {
+    val formData = remember {
+        mutableStateMapOf<String, String>().apply {
+            columns.forEach { col ->
+                put(col.key, row[col.key] ?: "")  // pre fills existing data
+            }
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Edit Record") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                columns.forEach { col ->
+                    OutlinedTextField(
+                        value = formData[col.key] ?: "",
+                        onValueChange = { formData[col.key] = it },
+                        label = { Text(col.label) },
+                        placeholder = {
+                            if (col.type == "date") Text("YYYY-MM-DD", color = Color.Gray)
+                        },
+                        singleLine = true
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = {
+                val updatedData = formData.toMutableMap()
+                updatedData["id"] = row["id"] ?: ""
+                onSave(updatedData)
+            }) { Text("Save") }
+        },
+        dismissButton = {
+            OutlinedButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+
+
+
+
+
+
+see we have to do one thig that in json we add the what we wnat is like search in the table from forenkey in this table like if this table s as the five colum all this coonectd with the forgene kry eith the other tble if we search with that foreen key we need this table what wvver is connect that we didplay like see and that we mention like table name andd what search we give like list of fortgine key table name and forgene key so that forgenkey we sear and that table data we fetch and we need same search horizonality like the current table that all colums search is thaitere abouve that we put this and mestion placeholder as forgenkey search i an i will set exaplme like dut 1vyv12345 like serarch connected files will only display. got it ?
+
+the ui that is alsi true of false that we want to show or not and that search files come beloww row of this current
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+package org.example.desktopapp
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
+import java.time.LocalDate
+
+@Composable
+fun DynamicTableScreen(
+    configFile: String,
+    onBack: () -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    val authService = remember { AuthService() }
+
+    val config = remember { TableConfigLoader.load(configFile) }
+    val visibleColumns = config.columns.filter { it.visible }
+
+    // table state
+    var rows          by remember { mutableStateOf<List<Map<String, String>>>(emptyList()) }
+    var isLoading     by remember { mutableStateOf(false) }
+    var errorMsg      by remember { mutableStateOf("") }
+    var successMsg    by remember { mutableStateOf("") }
+
+    // global search
+    var searchText    by remember { mutableStateOf("") }
+
+    // column wise search — key → value
+    val columnSearch = remember {
+        mutableStateMapOf<String, String>().apply {
+            config.searchColumns.filter { it.enabled }.forEach { put(it.key, "") }
+        }
+    }
+
+    // date range filter
+    var fromDate by remember { mutableStateOf("") }
+    var toDate   by remember { mutableStateOf("") }
+
+    // dialog state
+    var showAddDialog by remember { mutableStateOf(false) }
+    var editingRow    by remember { mutableStateOf<Map<String, String>?>(null) }
+
+    // ── FILTER FUNCTION — applies all filters locally ──
+    fun applyFilters(source: List<Map<String, String>>): List<Map<String, String>> {
+        return source.filter { row ->
+
+            // global search
+            val matchGlobal = searchText.isBlank() ||
+                    row.values.any { it.contains(searchText, ignoreCase = true) }
+
+            // column wise search
+            val matchColumns = columnSearch.all { (key, value) ->
+                value.isBlank() || (row[key] ?: "").contains(value, ignoreCase = true)
+            }
+
+            // date range filter
+            val matchDate = if (!config.dateFilterable) true else {
+                val rowDateStr = row[config.dateColumn] ?: ""
+                val rowDate = try { LocalDate.parse(rowDateStr) } catch (e: Exception) { null }
+
+                val from = if (fromDate.isBlank()) null
+                else try { LocalDate.parse(fromDate) } catch (e: Exception) { null }
+
+                val to = if (toDate.isBlank()) LocalDate.now()
+                else try { LocalDate.parse(toDate) } catch (e: Exception) { LocalDate.now() }
+
+                if (rowDate == null) true
+                else {
+                    val afterFrom = if (from == null) true else !rowDate.isBefore(from)
+                    val beforeTo  = !rowDate.isAfter(to)
+                    afterFrom && beforeTo
+                }
+            }
+
+            matchGlobal && matchColumns && matchDate
+        }
+    }
+
+    // filtered rows — derived from rows + all filters
+    val filteredRows = remember(rows, searchText, columnSearch.toMap(), fromDate, toDate) {
+        applyFilters(rows)
+    }
+
+    // ── LOAD ALL ──
+    fun loadAll() {
+        scope.launch {
+            isLoading = true
+            errorMsg = ""
+            try {
+                rows = authService.getAllRows(config.apiBase)
+            } catch (e: Exception) {
+                errorMsg = "Failed to load: ${e.message}"
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+
+    fun deleteRow(id: String) {
+        scope.launch {
+            try {
+                authService.deleteRow(config.apiBase, id)
+                successMsg = "Deleted successfully"
+                loadAll()
+            } catch (e: Exception) {
+                errorMsg = "Delete failed: ${e.message}"
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) { loadAll() }
+
+    // ── ADD DIALOG ──
+    if (showAddDialog) {
+        DynamicAddDialog(
+            columns = config.columns.filter { it.addable },  // ← uses addable not editable
+            onDismiss = { showAddDialog = false },
+            onSave = { formData ->
+                scope.launch {
+                    try {
+                        authService.addRow(config.apiBase, formData)
+                        showAddDialog = false
+                        successMsg = "Record added successfully"
+                        loadAll()
+                    } catch (e: Exception) {
+                        errorMsg = "Add failed: ${e.message}"
+                    }
+                }
+            }
+        )
+    }
+
+    // ── EDIT DIALOG ──
+    editingRow?.let { row ->
+        DynamicEditDialog(
+            row = row,
+            columns = config.columns.filter { it.editable },  // ← uses editable
+            onDismiss = { editingRow = null },
+            onSave = { formData ->
+                scope.launch {
+                    try {
+                        authService.updateRow(config.apiBase, formData)
+                        editingRow = null
+                        successMsg = "Record updated successfully"
+                        loadAll()
+                    } catch (e: Exception) {
+                        errorMsg = "Update failed: ${e.message}"
+                    }
+                }
+            }
+        )
+    }
+
+    Column(modifier = Modifier.fillMaxSize().padding(24.dp)) {
+
+        // ── TOP BAR ──
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text(config.displayName, style = MaterialTheme.typography.headlineMedium)
+                Text(
+                    "Showing ${filteredRows.size} of ${rows.size} records",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.Gray
+                )
+            }
+            OutlinedButton(onClick = onBack) { Text("Back") }
+        }
+
+        Spacer(Modifier.height(12.dp))
+        HorizontalDivider()
+        Spacer(Modifier.height(12.dp))
+
+        // ── GLOBAL SEARCH + ADD ──
+        if (config.searchable || config.canAdd) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                // global search
+                if (config.searchable) {
+                    OutlinedTextField(
+                        value = searchText,
+                        onValueChange = { searchText = it },
+                        label = { Text("Search All") },
+                        singleLine = true,
+                        modifier = Modifier.width(160.dp)
+                    )
+                }
+
+                // column wise search bars
+                config.searchColumns.filter { it.enabled }.forEach { searchCol ->
+                    OutlinedTextField(
+                        value = columnSearch[searchCol.key] ?: "",
+                        onValueChange = { columnSearch[searchCol.key] = it },
+                        label = { Text(searchCol.label) },
+                        singleLine = true,
+                        modifier = Modifier.width(140.dp)
+                    )
+                }
+
+                // date range filter
+                if (config.dateFilterable) {
+                    OutlinedTextField(
+                        value = fromDate,
+                        onValueChange = { fromDate = it },
+                        label = { Text("From Date") },
+                        placeholder = { Text("YYYY-MM-DD", color = Color.Gray) },
+                        singleLine = true,
+                        modifier = Modifier.width(160.dp)
+                    )
+                    OutlinedTextField(
+                        value = toDate,
+                        onValueChange = { toDate = it },
+                        label = { Text("To Date") },
+                        placeholder = { Text("YYYY-MM-DD", color = Color.Gray, fontSize = 11.sp) },
+                        singleLine = true,
+                        modifier = Modifier.width(160.dp)
+                    )
+                }
+
+                // reset button
+                OutlinedButton(onClick = {
+                    searchText = ""
+                    columnSearch.keys.forEach { columnSearch[it] = "" }
+                    fromDate = ""
+                    toDate = ""
+                }) { Text("Reset") }
+
+                Spacer(Modifier.weight(1f))
+
+                // add button
+                if (config.canAdd) {
+                    Button(onClick = { showAddDialog = true }) { Text("+ Add") }
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+
+        // messages
+        if (successMsg.isNotEmpty()) {
+            Text(successMsg, color = MaterialTheme.colorScheme.primary, fontSize = 13.sp)
+            Spacer(Modifier.height(4.dp))
+        }
+        if (errorMsg.isNotEmpty()) {
+            Text(errorMsg, color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
+            Spacer(Modifier.height(4.dp))
+        }
+
+        Spacer(Modifier.height(8.dp))
+
+        // ── TABLE HEADER ──
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.primary)
+                .padding(horizontal = 16.dp, vertical = 10.dp)
+        ) {
+            visibleColumns.forEach { col ->
+                Text(
+                    col.label,
+                    color = Color.White,
+                    modifier = Modifier.weight(1f),
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp
+                )
+            }
+            if (config.canEdit || config.canDelete) {
+                Text(
+                    "Actions",
+                    color = Color.White,
+                    modifier = Modifier.width(160.dp),
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp
+                )
+            }
+        }
+
+        // ── TABLE BODY ──
+        when {
+            isLoading -> {
+                Box(
+                    Modifier.fillMaxWidth().padding(32.dp),
+                    contentAlignment = Alignment.Center
+                ) { CircularProgressIndicator() }
+            }
+            filteredRows.isEmpty() -> {
+                Text(
+                    "No records found.",
+                    modifier = Modifier.padding(16.dp),
+                    color = Color.Gray
+                )
+            }
+            else -> {
+                LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                    itemsIndexed(filteredRows) { index, row ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(
+                                    if (index % 2 == 0) Color(0xFFF5F5F5) else Color.White
+                                )
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            visibleColumns.forEach { col ->
+                                Text(
+                                    row[col.key] ?: "",
+                                    modifier = Modifier.weight(1f),
+                                    fontSize = 13.sp
+                                )
+                            }
+                            Row(modifier = Modifier.width(160.dp)) {
+                                if (config.canEdit) {
+                                    TextButton(onClick = {
+                                        successMsg = ""
+                                        errorMsg = ""
+                                        editingRow = row
+                                    }) {
+                                        Text("Edit", fontSize = 12.sp)
+                                    }
+                                }
+                                if (config.canDelete) {
+                                    TextButton(onClick = {
+                                        successMsg = ""
+                                        errorMsg = ""
+                                        deleteRow(row["id"] ?: "")
+                                    }) {
+                                        Text(
+                                            "Delete",
+                                            color = MaterialTheme.colorScheme.error,
+                                            fontSize = 12.sp
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        HorizontalDivider(color = Color(0xFFEEEEEE))
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ── ADD DIALOG — uses addable columns ──
+@Composable
+fun DynamicAddDialog(
+    columns: List<ColumnConfig>,
+    onDismiss: () -> Unit,
+    onSave: (Map<String, String>) -> Unit
+) {
+    val formData = remember {
+        mutableStateMapOf<String, String>().apply {
+            columns.forEach { put(it.key, "") }
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Add New Row") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                columns.forEach { col ->
+                    OutlinedTextField(
+                        value = formData[col.key] ?: "",
+                        onValueChange = { formData[col.key] = it },
+                        label = { Text(col.label) },
+                        placeholder = {
+                            if (col.type == "date") Text("YYYY-MM-DD", color = Color.Gray)
+                        },
+                        singleLine = true
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = { onSave(formData.toMap()) }) { Text("Save") }
+        },
+        dismissButton = {
+            OutlinedButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+// ── EDIT DIALOG — uses editable columns ──
+@Composable
+fun DynamicEditDialog(
+    row: Map<String, String>,
+    columns: List<ColumnConfig>,
+    onDismiss: () -> Unit,
+    onSave: (Map<String, String>) -> Unit
+) {
+    val formData = remember {
+        mutableStateMapOf<String, String>().apply {
+            columns.forEach { col ->
+                put(col.key, row[col.key] ?: "")
+            }
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Edit Record") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                columns.forEach { col ->
+                    OutlinedTextField(
+                        value = formData[col.key] ?: "",
+                        onValueChange = { formData[col.key] = it },
+                        label = { Text(col.label) },
+                        placeholder = {
+                            if (col.type == "date") Text("YYYY-MM-DD", color = Color.Gray)
+                        },
+                        singleLine = true
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = {
+                val updated = formData.toMutableMap()
+                updated["id"] = row["id"] ?: ""
+                onSave(updated)
+            }) { Text("Save") }
+        },
+        dismissButton = {
+            OutlinedButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}

@@ -1,0 +1,28 @@
+{
+  "tableName": "testresult",
+  "displayName": "Detailed Test Results",
+  "apiBase": "http://localhost:8080/api/testresults",
+  "columns": [
+    { "key": "id", "label": "ID", "visible": true, "addable": false, "editable": false, "type": "number" },
+    { "key": "testRecordId", "label": "Record ID", "visible": true, "addable": true, "editable": false, "type": "number" },
+    { "key": "paramName", "label": "Parameter", "visible": true, "addable": true, "editable": true, "type": "text" },
+    { "key": "paramValue", "label": "Value", "visible": true, "addable": true, "editable": true, "type": "text" }
+  ],
+  "searchable": true,
+  "searchColumns": [{ "key": "paramName",       "label": "paramname",        "enabled": true  },
+    { "key": "paramValue",       "label": "paramvalue",        "enabled": true  },
+    { "key": "testRecordId",       "label": "testrecordid",        "enabled": true  }],
+  "dateFilterable": true,
+  "canAdd": true,
+  "canDelete": true,
+  "canEdit": true,
+  "foreignKeySearch": [
+    {
+      "enabled": true,
+      "label": "Search by DUT",
+      "placeholder": "Enter DUT Number",
+      "foreignKey": "dut",
+      "apiEndpoint": "http://localhost:8080/api/testresults/by-dut"
+    }
+  ]
+}

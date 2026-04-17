@@ -1,0 +1,20 @@
+{
+  "tableName": "users",
+  "displayName": "Users",
+  "apiBase": "http://localhost:8080/api/users",
+  "columns": [
+    { "key": "id",       "label": "ID",       "visible": true, "addable": false,  "editable": false, "type": "number" },
+    { "key": "username", "label": "Username", "visible": true, "addable": true,  "editable": true,  "type": "text"   },
+    { "key": "role",     "label": "Role",     "visible": true, "addable": true,  "editable": true,  "type": "text"   }
+  ],
+  "searchable": true,
+  "searchColumns": [
+    { "key": "username","label": "Username", "enabled": true },
+    { "key": "role",     "label": "Role",      "enabled": true }
+  ],
+  "dateFilterable": true,
+  "dateColumn": "recordDate",
+  "canAdd": true,
+  "canDelete": true,
+  "canEdit": true
+}
